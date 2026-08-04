@@ -1,0 +1,107 @@
+### 一、`args` 是什么
+```java
+Map<String, Object> args
+```
+`args` 是一个 **键值对 Map**：
+- Key：字符串（参数名称，这里是 `"file_path"`）
+- Value：`Object` 类型，可以存放字符串、数字、布尔等任意类型参数
+
+它的作用：**接收外部调用这个工具方法时传入的所有入参**。
+
+---
+### 二、结合代码逐行讲解
+```java
+public ToolResult execute(Map<String, Object> args) {
+    // 从args里取出 key="file_path" 的参数，取不到就默认空字符串
+    String filePath = stringArg(args, "file_path", "");
+
+    // 判断是否传入了文件路径
+    if (filePath.isEmpty()) {
+        return ToolResult.error("Error: file_path is required");
+    }
+```
+1. **调用场景**
+外部（AI框架/平台）调用这个「删除文件工具」时，会传递参数：
+```json
+{
+  "file_path": "D:/test.txt"
+}
+```
+这份JSON会被转换成 `Map<String,Object>`，也就是方法入参 `args`。
+
+2. **`stringArg(args, "file_path", "")` 逻辑**
+自定义工具方法：
+- 从 `args` 这个Map中，根据键 `file_path` 读取值
+- 如果Map里不存在这个key、或者值为null，就返回第三个参数 `""`（空字符串）
+- 并且把读取到的值强制转为字符串
+
+3. **`if (filePath.isEmpty())` 判断含义**
+两种情况会触发报错：
+- 外部调用时**没有传 `file_path` 参数**
+- 传了参数但是路径是空字符串
+
+> 业务含义：删除文件工具**必须提供待删除文件路径**，缺少参数直接返回错误结果。
+
+---
+### 三、整体总结 `args` 的核心作用
+1. **参数载体**：承载外部传来的所有工具入参；
+2. **解耦**：`execute` 方法不需要硬编码固定参数列表，支持动态传入多个参数；
+3. **适配AI工具调用规范**：大模型调用函数工具时，参数天然是 `key-value` 结构，正好对应 `Map`。
+
+### 举个直观例子
+外部传入参数：
+```
+args = { "file_path": "/home/test.md" }
+```
+`stringArg` 读取后 `filePath = "/home/test.md"` → 正常往下执行删除逻辑。
+
+外部不传参数：
+```
+args = {}
+```
+`stringArg` 拿不到 `file_path`，返回空字符串 → `filePath.isEmpty() = true` → 返回错误提示。
+
+```java
+/**
+ * 从参数Map中安全读取字符串参数
+ * @param args 参数map
+ * @param key 参数名称
+ * @param def 默认值，找不到参数时返回
+ * @return 目标字符串
+ */
+private static String stringArg(Map<String, Object> args, String key, String def) {
+    // 根据key获取参数对象
+    Object var = args.get(key);
+    // 为空则返回默认值
+    if (var == null) {
+        return def;
+    }
+    // 转为字符串返回
+    return var.toString();
+}
+```
+
+### 简单逻辑说明
+1. `args.get(key)`：从Map拿到传入参数的值；
+2. 如果不存在该key，`var == null`，直接返回你传入的默认值（示例里是空字符串 `""`）；
+3. 存在值，调用 `toString()` 统一转换成字符串，避免类型转换异常。
+
+### 拓展加强版（可选，更健壮）
+可以额外处理空白字符串场景，按需选用：
+```java
+private static String stringArg(Map<String, Object> args, String key, String def) {
+    Object var = args.get(key);
+    if (var == null) {
+        return def;
+    }
+    String str = var.toString().trim();
+    // 如果传进来全是空格，也返回默认值
+    return str.isBlank() ? def : str;
+}
+```
+
+结合你删除文件的代码调用：
+```java
+String filePath = stringArg(args, "file_path", "");
+```
+没有传入 `file_path` → 返回 `""`，紧接着 `filePath.isEmpty()` 判断触发参数缺失报错。
