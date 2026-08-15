@@ -1,0 +1,49 @@
+**签名不是 mewcode 自己验证的，是 Anthropic API 验证的。** mewcode 只负责存储和传递。
+
+---
+
+### 完整流程
+
+```
+第 1 轮对话：
+  LLM 返回 thinking block 结束
+  → API 发送 SignatureDelta（签名）    ← 签名和思考内容一一对应
+  → mewcode 存到 ThinkingComplete(thinking, signature)
+  → 再存到 ThinkingBlock(thinking, signature)
+  → 最后存到 Conversation 历史里
+
+第 2 轮对话：
+  mewcode 把历史发回给 API
+  → 包含上一次的 ThinkingBlock(thinking, signature)  ← 把签名原样带回
+  → Anthropic API 收到后，用签名验证 thinking 是否被篡改
+  → 如果被改过 → 签名不匹配 → API 拒绝请求
+```
+
+---
+
+### 代码路径
+
+```java
+// ① 接收签名（AnthropicClient.java 第370行）
+//    流式响应中，thinking block 结束时 API 发送签名增量
+delta.isSignature() → thinkingSignature = delta.asSignature().signature();
+
+// ② 打包发送（AnthropicClient.java 第378行）
+queue.put(new StreamEvent.ThinkingComplete(thinkingAccum.toString(), thinkingSignature));
+
+// ③ 存储（ThinkingBlock.java）
+public record ThinkingBlock(String thinking, String signature) {}
+
+// ④ 下次请求时原样带回（AnthropicClient.java 第477行）
+content.add(ContentBlockParam.ofThinking(
+    ThinkingBlockParam.builder()
+        .thinking(tb.thinking())
+        .signature(tb.signature())   // ← 签名原封不动带回去
+        .build()));
+```
+
+---
+
+### 一句话
+
+> **mewcode 是"快递员"，不是"验货员"——它把 thinking + signature 从 API 收到，存起来，下次请求时原样带回。API 自己用签名验货，发现被篡改就拒绝。**
